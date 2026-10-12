@@ -19,6 +19,8 @@ jobs:
         uses: ./.github/actions/setup-build-environment
 
       - name: Build Firmware
+        env:
+          FIRMWARE_VERSION: w0ql
         run: |
           set -o pipefail
           /usr/bin/env bash build.sh build-firmware Heltec_v3_sensor 2>&1 | tee build.log || {
