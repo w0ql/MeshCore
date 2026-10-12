@@ -19,7 +19,12 @@ jobs:
         uses: ./.github/actions/setup-build-environment
 
       - name: Build Firmware
-        run: /usr/bin/env bash build.sh build-firmware Heltec_v3_sensor
+        run: |
+          set -o pipefail
+          /usr/bin/env bash build.sh build-firmware Heltec_v3_sensor 2>&1 | tee build.log || {
+            grep -E "error|Error|undefined reference" build.log | head -20 | while read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - name: Publish Release
         uses: softprops/action-gh-release@v3
