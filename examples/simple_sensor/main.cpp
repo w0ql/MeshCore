@@ -1,4 +1,9 @@
 #include "SensorMesh.h"
+#include <Preferences.h>
+
+#ifndef BUS_SENSE_PIN
+  #define BUS_SENSE_PIN  7    // opto-isolator output -> GPIO 7
+#endif
 
 #ifdef DISPLAY_CLASS
   #include "UITask.h"
@@ -16,7 +21,22 @@ public:
 protected:
   /* ========================== custom logic here ========================== */
   Trigger low_batt, critical_batt;
+  Trigger bus_lost, bus_restored;
   TimeSeriesData  battery_data;
+  bool bus_invert = false;     // false: opto output LOW = bus live (typical PC817 module)
+  bool bus_seen_loss = false;
+
+  bool busLive() {
+    bool pin_low = (digitalRead(BUS_SENSE_PIN) == LOW);
+    return bus_invert ? !pin_low : pin_low;
+  }
+
+  void initBusSense() {
+    pinMode(BUS_SENSE_PIN, INPUT_PULLUP);
+    Preferences p; p.begin("bussense", true);
+    bus_invert = p.getBool("invert", false);
+    p.end();
+  }
 
   void onSensorDataRead() override {
     float batt_voltage = getVoltage(TELEM_CHANNEL_SELF);
@@ -24,6 +44,15 @@ protected:
     battery_data.recordData(getRTCClock(), batt_voltage);   // record battery
     alertIf(batt_voltage < 3.4f, critical_batt, HIGH_PRI_ALERT, "Battery is critical!");
     alertIf(batt_voltage < 3.6f, low_batt, LOW_PRI_ALERT, "Battery is low");
+
+    bool live = busLive();
+    if (!live) bus_seen_loss = true;
+    alertIf(!live, bus_lost, HIGH_PRI_ALERT, "Main bus: voltage LOST");
+    alertIf(live && bus_seen_loss, bus_restored, LOW_PRI_ALERT, "Main bus: RESTORED");
+  }
+
+  void addCustomTelemetry(CayenneLPP& lpp) override {
+    lpp.addDigitalInput(TELEM_CHANNEL_SELF, busLive() ? 1 : 0);   // 1 = bus live
   }
 
   int querySeriesData(uint32_t start_secs_ago, uint32_t end_secs_ago, MinMaxAvg dest[], int max_num) override {
@@ -32,12 +61,24 @@ protected:
   }
 
   bool handleCustomCommand(uint32_t sender_timestamp, char* command, char* reply) override {
-    if (strcmp(command, "magic") == 0) {    // example 'custom' command handling
-      strcpy(reply, "**Magic now done**");
-      return true;   // handled
+    if (strcmp(command, "bus") == 0) {
+      sprintf(reply, "bus %s (pin %s, invert %s)", busLive() ? "LIVE" : "DOWN",
+              digitalRead(BUS_SENSE_PIN) ? "HIGH" : "LOW", bus_invert ? "on" : "off");
+      return true;
+    }
+    if (strcmp(command, "bus.invert on") == 0 || strcmp(command, "bus.invert off") == 0) {
+      bus_invert = (command[11] == 'o' && command[12] == 'n');
+      Preferences p; p.begin("bussense", false); p.putBool("invert", bus_invert); p.end();
+      sprintf(reply, "OK - invert %s, bus now %s", bus_invert ? "on" : "off", busLive() ? "LIVE" : "DOWN");
+      return true;
     }
     return false;  // not handled
   }
+
+public:
+  void beginBusSense() { initBusSense(); }
+
+protected:
   /* ======================================================================= */
 };
 
@@ -107,6 +148,7 @@ void setup() {
   command[0] = 0;
 
   sensors.begin();
+  the_mesh.beginBusSense();
 
   the_mesh.begin(fs);
 

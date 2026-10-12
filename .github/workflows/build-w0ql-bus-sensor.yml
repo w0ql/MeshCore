@@ -1,0 +1,31 @@
+name: Build W0QL Bus Sensor (Heltec V3)
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Clone Repo
+        uses: actions/checkout@v6
+
+      - name: Setup Build Environment
+        uses: ./.github/actions/setup-build-environment
+
+      - name: Build Firmware
+        run: /usr/bin/env bash build.sh build-firmware Heltec_v3_sensor
+
+      - name: Publish Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: bus-sensor-latest
+          name: "W0QL Bus Sensor - Heltec V3"
+          body: "Heltec V3 MeshCore sensor watching GPIO 7. Use the -merged.bin file for a first-time flash with the MeshCore web flasher (Custom Firmware)."
+          make_latest: true
+          files: out/*
